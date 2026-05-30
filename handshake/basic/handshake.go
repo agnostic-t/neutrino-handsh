@@ -1,4 +1,4 @@
-package handshake
+package basic
 
 import (
 	"encoding/binary"
