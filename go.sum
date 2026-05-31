@@ -1,2 +1,4 @@
 github.com/agnostic-t/neutrino-core v0.0.0-20260530195043-392460dec975 h1:8wpP2rwg1h+5YHB3o0NxJGjJrMpWdx6eK2QxTmeF/mE=
 github.com/agnostic-t/neutrino-core v0.0.0-20260530195043-392460dec975/go.mod h1:UCnSsC7UhoTc7Vs+6eQprEsFqTIcCA+2lVk2ti+tXnc=
+github.com/agnostic-t/neutrino-obfs v0.0.0-20260530094336-891671e7d218 h1:QbAlIPRpwCjWoX55FQ5t4Lbo+rE/9dCcH2jicLh0uq4=
+github.com/agnostic-t/neutrino-obfs v0.0.0-20260530094336-891671e7d218/go.mod h1:OuxDfOHuBg4g8xPEH2efz7vQu54v0msb3cpo3aKFu28=

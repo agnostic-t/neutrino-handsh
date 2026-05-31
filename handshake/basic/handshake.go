@@ -39,3 +39,22 @@ func (h *BasicHandshaker) ReadHandshake(r net.Conn) (string, error) {
 
 	return string(targetBuf), nil
 }
+
+func (h *BasicHandshaker) Success(conn net.Conn) bool {
+	conn.Write([]byte{0x00})
+	return true
+}
+
+func (h *BasicHandshaker) Failure(conn net.Conn) bool {
+	conn.Write([]byte{0x01})
+	return true
+}
+
+func (h *BasicHandshaker) ReadStatus(conn net.Conn) bool {
+	var buf [1]byte
+	if _, err := io.ReadFull(conn, buf[:]); err != nil {
+		return false
+	}
+
+	return buf[0] == 0x00
+}
