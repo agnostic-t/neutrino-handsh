@@ -1,8 +1,12 @@
 package obfsh
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"io"
+	"math"
 	"net"
+	"time"
 
 	"github.com/agnostic-t/neutrino-core/handshake"
 	obfs "github.com/agnostic-t/neutrino-obfs/xobfs"
@@ -12,15 +16,46 @@ import (
 var _ handshake.HandshakeHandler = &ObfsHandshaker{}
 
 type ObfsHandshaker struct {
-	ContinueJunk bool
-	Psk          []byte
+	ContinueJunk    bool
+	Psk             []byte
+	RotateSeconds   int64
+	RotateJunkCound bool
 }
 
-func NewObfsHandshaker(psk []byte, startJunk bool) *ObfsHandshaker {
-	return &ObfsHandshaker{Psk: psk, ContinueJunk: startJunk}
+func timeferral_key(time, rotate_seconds int64) [32]byte {
+	stepped := uint64(math.Floor(float64(time) / float64(rotate_seconds))) // 30 seconds step to rotate
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, stepped)
+
+	return sha256.Sum256(buf)
+}
+
+func NewObfsHandshaker(psk []byte, startJunk bool, rotateSeconds int64, rotateJunkCount bool, minJunkPacks, maxJunkPacks int) *ObfsHandshaker {
+	return &ObfsHandshaker{
+		Psk:             psk,
+		ContinueJunk:    startJunk,
+		RotateSeconds:   rotateSeconds,
+		RotateJunkCound: rotateJunkCount,
+	}
 }
 
 func (h *ObfsHandshaker) WriteHandshake(w net.Conn, target string) error {
+	if h.RotateSeconds != -1 && time.Now().Unix()%h.RotateSeconds == h.RotateSeconds-2 { // if 2 seconds reamains for new step
+		// wait 2 seconds
+		time.Sleep(time.Second * 2)
+	}
+
+	psk := make([]byte, len(h.Psk))
+	copy(psk, h.Psk)
+
+	if h.RotateSeconds != -1 {
+		tkey := timeferral_key(time.Now().Unix(), h.RotateSeconds)
+		for i := range len(h.Psk) {
+			psk[i] ^= tkey[i%len(tkey)]
+		}
+	}
+
 	obfsed, err := algo.Obfuscate([]byte(target), h.Psk)
 	if err != nil {
 		return err
@@ -36,7 +71,13 @@ func (h *ObfsHandshaker) WriteHandshake(w net.Conn, target string) error {
 	copy(encr_buff[4:], obfsed)
 
 	if h.ContinueJunk {
-		prState := algo.InitPrandStateFromPSK(h.Psk)
+		var prState *algo.PrandState
+		if h.RotateJunkCound {
+			prState = algo.InitPrandStateFromPSK(psk)
+		} else {
+			prState = algo.InitPrandStateFromPSK(h.Psk)
+		}
+
 		junkN := prState.PrandInt(0, 6)
 
 		for range junkN {
@@ -68,10 +109,31 @@ func (h *ObfsHandshaker) WriteHandshake(w net.Conn, target string) error {
 }
 
 func (h *ObfsHandshaker) ReadHandshake(r net.Conn) (string, error) {
+	if h.RotateSeconds != -1 && time.Now().Unix()%h.RotateSeconds == h.RotateSeconds-2 { // if 2 seconds reamains for new step
+		// wait 2 seconds
+		time.Sleep(time.Second * 2)
+	}
+
+	psk := make([]byte, len(h.Psk))
+	copy(psk, h.Psk)
+
+	if h.RotateSeconds != -1 {
+		tkey := timeferral_key(time.Now().Unix(), h.RotateSeconds)
+		for i := range len(h.Psk) {
+			psk[i] ^= tkey[i%len(tkey)]
+		}
+	}
 
 	if h.ContinueJunk {
-		prState := algo.InitPrandStateFromPSK(h.Psk)
+		var prState *algo.PrandState
+		if h.RotateJunkCound {
+			prState = algo.InitPrandStateFromPSK(psk)
+		} else {
+			prState = algo.InitPrandStateFromPSK(h.Psk)
+		}
+
 		junkN := prState.PrandInt(0, 6)
+		// fmt.Printf("reading %d junk packets\n", junkN)
 
 		for range junkN {
 			var header [4]byte
@@ -91,6 +153,7 @@ func (h *ObfsHandshaker) ReadHandshake(r net.Conn) (string, error) {
 		}
 	}
 
+	// fmt.Printf("reading actuall data\n")
 	var header [4]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return "", err
@@ -111,6 +174,7 @@ func (h *ObfsHandshaker) ReadHandshake(r net.Conn) (string, error) {
 		return "", err
 	}
 
+	// fmt.Printf("got deobfuscated: %s\n", deob)
 	return string(deob), nil
 }
 
