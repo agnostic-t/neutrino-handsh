@@ -3,6 +3,7 @@ package obfsh
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -40,7 +41,7 @@ func NewObfsHandshaker(psk []byte, startJunk bool, rotateSeconds int64, rotateJu
 	}
 }
 
-func (h *ObfsHandshaker) WriteHandshake(w net.Conn, target string) error {
+func (h *ObfsHandshaker) WriteHandshake(w net.Conn, target, proto string) error {
 	if h.RotateSeconds != -1 && time.Now().Unix()%h.RotateSeconds == h.RotateSeconds-2 { // if 2 seconds reamains for new step
 		// wait 2 seconds
 		time.Sleep(time.Second * 2)
@@ -56,7 +57,17 @@ func (h *ObfsHandshaker) WriteHandshake(w net.Conn, target string) error {
 		}
 	}
 
-	obfsed, err := algo.Obfuscate([]byte(target), h.Psk)
+	protoByte := make([]byte, 1)
+	switch proto {
+	case "tcp":
+		protoByte[0] = 0x00
+	case "udp":
+		protoByte[0] = 0x01
+	default:
+		return fmt.Errorf("Unknown protocol: %s", proto)
+	}
+
+	obfsed, err := algo.Obfuscate(append(protoByte, []byte(target)...), h.Psk)
 	if err != nil {
 		return err
 	}
@@ -108,7 +119,7 @@ func (h *ObfsHandshaker) WriteHandshake(w net.Conn, target string) error {
 	return nil
 }
 
-func (h *ObfsHandshaker) ReadHandshake(r net.Conn) (string, error) {
+func (h *ObfsHandshaker) ReadHandshake(r net.Conn) (string, string, error) {
 	if h.RotateSeconds != -1 && time.Now().Unix()%h.RotateSeconds == h.RotateSeconds-2 { // if 2 seconds reamains for new step
 		// wait 2 seconds
 		time.Sleep(time.Second * 2)
@@ -133,49 +144,55 @@ func (h *ObfsHandshaker) ReadHandshake(r net.Conn) (string, error) {
 		}
 
 		junkN := prState.PrandInt(0, 6)
-		// fmt.Printf("reading %d junk packets\n", junkN)
 
 		for range junkN {
 			var header [4]byte
 			if _, err := io.ReadFull(r, header[:]); err != nil {
-				return "", err
+				return "", "", err
 			}
 
 			frameLen, _, err := obfs.ObfsDecodeHeader(header, h.Psk)
 			if err != nil {
-				return "", err
+				return "", "", err
 			}
 
 			junk := make([]byte, frameLen)
 			if _, err := io.ReadFull(r, junk); err != nil {
-				return "", err
+				return "", "", err
 			}
 		}
 	}
 
-	// fmt.Printf("reading actuall data\n")
 	var header [4]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	frameLen, _, err := obfs.ObfsDecodeHeader(header, h.Psk)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	data := make([]byte, frameLen)
 	if _, err := io.ReadFull(r, data); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	deob, err := algo.Deobfuscate(data, h.Psk)
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+
+	var protoString string
+	switch deob[0] {
+	case 0x00:
+	case 0x01:
+	default:
+		return "", "", fmt.Errorf("Unknown protocol byte: %d", deob[0])
 	}
 
 	// fmt.Printf("got deobfuscated: %s\n", deob)
-	return string(deob), nil
+	return protoString, string(deob[1:]), nil
 }
 
 func (h *ObfsHandshaker) Success(conn net.Conn) bool {
