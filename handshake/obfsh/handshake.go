@@ -186,7 +186,9 @@ func (h *ObfsHandshaker) ReadHandshake(r net.Conn) (string, string, error) {
 	var protoString string
 	switch deob[0] {
 	case 0x00:
+		protoString = "tcp"
 	case 0x01:
+		protoString = "udp"
 	default:
 		return "", "", fmt.Errorf("Unknown protocol byte: %d", deob[0])
 	}
