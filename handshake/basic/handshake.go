@@ -61,7 +61,7 @@ func (h *BasicHandshaker) ReadHandshake(r net.Conn) (string, string, error) {
 	var protoStr string
 	if protoBuf[0] == 0x00 {
 		protoStr = "tcp"
-	} else if protoBuf[1] == 0x01 {
+	} else if protoBuf[0] == 0x01 {
 		protoStr = "udp"
 	} else {
 		return "", "", fmt.Errorf("Unknown protocol type: %d", protoBuf[0])
